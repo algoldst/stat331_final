@@ -1,0 +1,32 @@
+{
+    "id": "ACEB9C4F",
+    "path": null,
+    "project_path": null,
+    "type": "r_dataframe",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1598504750897.0,
+    "source_on_save": false,
+    "relative_order": 3,
+    "properties": {
+        "expression": "by_race",
+        "caption": "by_race",
+        "totalObservations": 7,
+        "displayedObservations": 7,
+        "variables": 3,
+        "cacheKey": "110CA960",
+        "object": "by_race",
+        "environment": "",
+        "contentUrl": "grid_resource/gridviewer.html?env=&obj=by_race&cache_key=110CA960&max_cols=50",
+        "preview": 0
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1874340155608,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1598504750897,
+    "read_only": false,
+    "read_only_alternatives": []
+}

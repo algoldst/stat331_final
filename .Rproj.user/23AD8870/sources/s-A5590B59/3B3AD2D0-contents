@@ -1,0 +1,312 @@
+---
+title: "Analysis of Police Shootings in the United States (Washington Post, 2015 - Present)"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Libraries
+library(tidyverse)
+library(lubridate)
+```
+# Get Data
+```{r}
+# Import
+shootings <- read.csv("https://raw.githubusercontent.com/washingtonpost/data-police-shootings/master/fatal-police-shootings-data.csv")
+
+# Clean up data
+shootings <- shootings %>% 
+  mutate(date = lubridate::ymd(date)) %>%   # Convert date to Lubridate
+  mutate(age = round(age)) %>%              # Make all ages integers
+  
+  # Fix blank strings "" --> "not recorded"
+  mutate(across(.cols = c(name, 
+                          manner_of_death, 
+                          armed, 
+                          age, 
+                          gender, 
+                          race, 
+                          city, 
+                          state, 
+                          signs_of_mental_illness, 
+                          threat_level, 
+                          flee, 
+                          body_camera), 
+                .fns = ~ifelse(.x == "", "not recorded", .x))) %>%
+
+  # Factorize
+  mutate(gender = as.factor(gender),
+         race = as.factor(race),
+         signs_of_mental_illness = as.logical(signs_of_mental_illness),
+         threat_level = as.factor(threat_level),
+         flee = as.factor(flee),
+         body_camera = as.logical(body_camera) )
+
+```
+
+# Data Analysis
+
+**What percentage are killed while attempting to flee? Has this number decreased over time? How many of these individuals were unarmed?**
+```{r}
+# Breakdown of Flee status totals
+flee_totals <- shootings %>%
+  mutate(count = 1) %>%
+  aggregate(count ~ flee, data=., sum) %>%
+  mutate(`Percent of Total` = count / sum(count) * 100) %>%
+  arrange(desc(`Percent of Total`)) %>%
+  rename(`Flee Method` = flee, Total = count)
+flee_totals
+# Plot of Flee Status Breakdown
+flee_totals %>%
+  ggplot(aes(x=reorder(`Flee Method`,-`Percent of Total`), y=`Percent of Total`, fill=`Flee Method`)) +
+  geom_bar(stat="identity") +
+  labs(title="Breakdown of Individuals Shot, by 'Flee' Status",
+       x="Flee Method",
+       y="Percent of Total")
+
+
+# How many were unarmed and fleeing?  
+flee_unarmed <- shootings %>%
+  filter(armed == "unarmed") %>%
+  filter(flee != "Not fleeing" & flee != "not recorded") %>%
+  count(flee) %>%
+  mutate(`Percent of Total Fleeing` = n/sum(flee_totals$Total) * 100) %>%
+  rename(`Flee Status` = flee, `Number Shot` = n)
+flee_unarmed
+```
+
+**How many people were killed with a “non-weapon”? (Eg. “Toy weapon”)**
+
+These could be wrongful deaths in cases where the “Threat Level” says they were not attacking.
+
+```{r}
+# Filter by all non-weapons we can find
+nonweapon <-
+  shootings %>% 
+  filter(armed == "unarmed" |
+         armed == "toy weapon" |
+         armed == "claimed to be armed" | 
+         armed == "unknown weapon" |
+         armed == "not recorded")
+
+# Get counts & proportions
+nonweapon_proportion <- nonweapon %>% 
+  group_by(armed) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  mutate(`Proportion of Unarmed` = n/length(nonweapon$armed)*100) %>%
+  mutate(`Percentage of Total` = n/length(shootings$armed)*100)
+
+# Display nonweapon statistics
+nonweapon_proportion %>%
+  rename(`Armed Status` = armed, Total = n)
+
+# Split proportions split into separate Total and Unarmed facets
+nonweapon_proportion %>% 
+  pivot_longer(c("Proportion of Unarmed", "Percentage of Total"), 
+               names_to="Classification",
+               values_to="Proportion") %>%
+  ggplot() +
+  geom_bar(mapping=aes(x=reorder(armed,-Proportion), y=Proportion, fill=reorder(armed,-Proportion)), stat="identity") + 
+  # Separate Unarmed and Total proportions
+  facet_wrap(Classification~., scales="free_y") +
+  # Hide x labels
+  theme(axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  labs(title="Shootings by Percentage of Total & as Proportion of Unarmed, By 'Weapon'",
+       fill = "Unarmed 'Weapon'",
+       x="Armed Status")
+
+```
+
+[J]**How many mentally-ill individuals were tased or otherwise attempted to be subdued before officers resorted to shooting? Has this number changed over time?**
+```{r}
+
+```
+
+[A]**What is the breakdown of police shootings by race? By raw numbers? How has this changed over time?**
+```{r}
+# Replace race identifier with full text
+shootings2 <- shootings %>%
+  # Replace abbreviated race identifier with race
+  mutate(race = as.factor( ifelse(race=="W","White",
+                  ifelse(race=="B","Black",
+                  ifelse(race=="H", "Hispanic",
+                  ifelse(race=="A", "Asian",
+                  ifelse(race=="N", "Native American",
+                  ifelse(race=="O", "Other", "not recorded"))))))))
+
+# By race, total
+by_race <- shootings2 %>%
+  group_by(race) %>%
+  count() %>%
+  arrange(desc(n)) %>%
+  mutate(`Proportion of Total` = n/length(shootings$race) * 100)
+# Output results
+by_race %>%
+  rename(Race = race, Total = n)
+
+# Plot Totals by Race
+by_race %>%
+  ggplot(aes(x=reorder(race, n), y=n, fill=race)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  labs(title="Number of US Police Shootings by Race Since 2015",
+       x="Race",
+       y="Number of Deaths")
+
+# Plotting Races by Year
+shootings2 %>%
+  mutate(`Total Shot` = rep(1, length(shootings$name))) %>%    # Put a 1 in this slot
+  aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>% 
+  ggplot(aes(x=`year(date)`, y=`Total Shot`, fill=reorder(race,-`Total Shot`))) +
+  geom_bar(stat="identity", position="dodge2") +
+  labs(title="Shooting Totals by Year",
+       x="Year",
+       fill="Race")
+
+# Line graph over time
+shootings2 %>%
+  mutate(`Total Shot` = rep(1, length(shootings$name))) %>%
+  aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>% 
+  ggplot(aes(x=`year(date)`, y=`Total Shot`, color=race)) +
+  geom_line() +
+  labs(title="Trends for Shooting Totals by Year",
+       x="Year",
+       color="Race")
+```
+
+**Normalizing by percentage of each race's total population in the US?**
+```{r}
+# First, we need each race's total population for 2015-2020.
+census <- read.csv(here::here("acs2017_census_tract_data.csv"))
+
+census <- census %>%
+  # Convert percentages to raw numbers
+  mutate(across(.cols = c("Hispanic", "White", "Black", "Native", "Asian", "Pacific"), 
+                .fns = ~.x/100.0*TotalPop)) %>%
+  # Sum them up
+  select(c("Hispanic", "White", "Black", "Native", "Asian", "Pacific")) %>%
+  colSums(na.rm = TRUE) %>%
+  round()
+
+# Save total as US Population total
+us_population <- 326971407 - (2314238/2) # 2018 population - 1/2 growth in 2017 --> mid-2017 pop.
+
+# Correct the names to be consistent with our dataset
+census <- census %>%
+  cbind(names(census)) %>%
+  as.data.frame %>%
+  mutate(V2 = ifelse(V2 == "Native", "Native American", V2),
+         V2 = ifelse(V2 == "Pacific", "Other", V2)) %>%
+  rename(race = V2)
+
+# Make "Other" actually the "Other" population and not just Pacific Islanders
+census$. <- as.integer(census$.)
+census$.[6] <- us_population - (sum(census$.) - census$.[6])
+
+# Flip the order
+census <- census[c(2,1)]
+# --------------
+
+## Normalize by_race
+# Combine into copy of "by_race"
+by_race2 <- right_join(census, by_race, by="race")
+by_race2 <- by_race2 %>%
+  rename(Population = ".") %>%
+  mutate(Population = as.integer(Population))
+
+# Get adjusted percentages by racial populations
+by_race2 <- by_race2 %>%
+  mutate(`Percent Of US` = Population / us_population * 100,
+         `Ratio Shot vs Population` = `Proportion of Total` / (`Percent Of US`))
+
+# Clean up variable names
+by_race2 <- by_race2 %>%
+  rename(Race = race, `Total Shot` = n)
+  
+## Normalize `shoootings`
+# Join with census data
+shootings_norm <- shootings2 %>%
+  mutate(`Total Shot` = 1) %>%
+  aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+  left_join(census, by="race") %>%
+  rename(Population = ".", Year = `year(date)`) %>%
+  mutate(Population = as.integer(Population)) %>%
+  mutate(`Population Percent` = Population / us_population * 100)
+
+# Get totals shot in the year
+shootings_norm <- shootings_norm %>%
+  group_by(Year) %>% 
+  summarize(sum(`Total Shot`)) %>%
+  rename(`Total Shot in Year` = "sum(`Total Shot`)") %>%
+  right_join(shootings_norm, by="Year") %>%
+  mutate(`Proportion of Shootings In Year` = `Total Shot` / `Total Shot in Year` * 100)
+
+# Normalize proportions by population percentage
+shootings_norm <- shootings_norm %>%
+  mutate(`Ratio Shot vs Population` = `Proportion of Shootings In Year` / `Population Percent`)
+
+# Output -----------
+# Display racial breakdown
+by_race2 %>%
+  select(-c("Population", "Proportion of Total")) %>%
+  arrange(desc(`Ratio Shot vs Population`))
+
+# Plot by Race, Normalized
+by_race2 %>%
+  filter(Race != "not recorded") %>%
+  ggplot(aes(x=reorder(Race, `Ratio Shot vs Population`),
+             y=`Ratio Shot vs Population`, 
+             fill=Race)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  labs(title="Ratio of Shootings Normalized by Racial Population, Since 2015",
+       x="Race",
+       y="Ratio: Shot vs Racial Population")
+
+# Results for Race & Year
+shootings_norm %>%
+  arrange(race) %>%
+  select(-"Population")
+
+# Plot Races by Year, normalized
+shootings_norm %>%
+  ggplot(aes(x=Year, y=`Ratio Shot vs Population`, fill=reorder(race,-`Ratio Shot vs Population`))) +
+  geom_bar(stat="identity", position="dodge2") +
+  scale_y_continuous(breaks=seq(0,9,1)) +
+  scale_x_continuous(breaks=2015:2020) +
+  labs(title="Ratio of Shootings to Population, by Year",
+     x="Year",
+     fill="Race")
+
+# Line graph over time, normalized
+shootings_norm %>%
+  ggplot(aes(x=Year, y=`Ratio Shot vs Population`, color=race)) +
+  geom_line() +
+  labs(title="Trends for Shooting Ratios Normalized By Population, by Year",
+       x="Year",
+       color="Race")
+  
+```
+
+
+```{r}
+
+
+```
+
+[J]**Is there a correlation between threat level & race?**
+
+If so, possible sources might be:
+
+- Interactions with police among specific racial groups might, on average, be more aggressive / carry higher risk
+
+- Police perception of an individual’s threat level might be influenced/biased by race.
+
+- How does city population factor into the number of police shootings? What about population densities? Are these correlated?
+
+
+
+

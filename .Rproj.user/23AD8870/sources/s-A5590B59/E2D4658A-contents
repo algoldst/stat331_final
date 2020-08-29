@@ -1,0 +1,584 @@
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    http://shiny.rstudio.com/
+#
+
+library(shiny)
+library(tidyverse)
+library(lubridate)
+
+wp_shootings <- read.csv("https://raw.githubusercontent.com/washingtonpost/data-police-shootings/master/fatal-police-shootings-data.csv")
+wp_shootings <- wp_shootings %>%
+    mutate(date = lubridate::ymd(date)) %>%   # Convert date to Lubridate
+    mutate(age = round(age)) %>%              # Make all ages integers
+
+    # Fix blank strings "" --> "not recorded"
+    mutate(across(.cols = c(name,
+                            manner_of_death,
+                            armed,
+                            age,
+                            gender,
+                            race,
+                            city,
+                            state,
+                            signs_of_mental_illness,
+                            threat_level,
+                            flee,
+                            body_camera),
+                  .fns = ~ifelse(.x == "", "not recorded", .x))) %>%
+    # Fix Races
+    # Replace abbreviated race identifier with race
+    mutate(race = as.factor( ifelse(race=="W","White",
+                             ifelse(race=="B","Black",
+                             ifelse(race=="H", "Hispanic",
+                             ifelse(race=="A", "Asian",
+                             ifelse(race=="N", "Native American",
+                             ifelse(race=="O", "Other", "not recorded")))))))) %>%
+    # Factorize
+    mutate(gender = as.factor(gender),
+           race = as.factor(race),
+           signs_of_mental_illness = as.logical(signs_of_mental_illness),
+           threat_level = as.factor(threat_level),
+           flee = as.factor(flee),
+           body_camera = as.logical(body_camera) )
+
+
+## Get Census Information for population percents and totals
+# Read in census data
+census <- read.csv("Data/acs2017_census_tract_data.csv")
+
+census <- census %>%
+    # Convert percentages to raw numbers
+    mutate(across(.cols = c("Hispanic", "White", "Black", "Native", "Asian", "Pacific"),
+                  .fns = ~.x/100.0*TotalPop)) %>%
+    # Sum them up
+    select(c("Hispanic", "White", "Black", "Native", "Asian", "Pacific")) %>%
+    colSums(na.rm = TRUE) %>%
+    round()
+
+# Save total as US Population total
+us_population <- sum(census)
+
+# Correct the names to be consistent with our dataset
+census <- census %>%
+    cbind(names(census)) %>%
+    as.data.frame %>%
+    mutate(V2 = ifelse(V2 == "Native", "Native American", V2),
+           V2 = ifelse(V2 == "Pacific", "Other", V2)) %>%
+    rename(race = V2)
+
+# Make "Other" actually the "Other" population and not just Pacific Islanders
+census$. <- as.integer(census$.)
+census$.[6] <- us_population - (sum(census$.) - census$.[6])
+
+# Flip the order
+census <- census[c(2,1)]
+
+
+
+## Define UI for application that draws a histogram
+ui <- fluidPage(
+
+    # Application title
+    titlePanel("US Police Shootings By Year"),
+
+    # Sidebar with a slider input for number of bins
+    sidebarLayout(
+        sidebarPanel(
+            checkboxGroupInput(inputId = "races_to_include",
+                               label = "Races to Include:",
+                               choices = c("White", "Black", "Hispanic", "Asian",
+                                          "Native American", "Other",
+                                          "Not Recorded" = "not recorded")),
+            selectInput(inputId = "numbers_as",  # Give the input a name
+                        label = "View numbers as...",  # Give the input a label to be displayed in the app
+
+                        # Create the choices that can be selected. e.g. Display "A" and link to value "a"
+                        choices = c("Raw Counts" = "raw_counts","Proportions (% of Total)" = "proportions"),
+                        selected = "raw_numbers"),
+
+            checkboxInput(inputId = "normalize",
+                          label = "Normalize by Race Population?",
+                          value = FALSE)
+        ),
+
+        # Show a plot of the generated distribution
+        mainPanel(
+            plotOutput("Histo"),
+
+            div(style="display: inline-block; vertical-align:top;",
+                sliderInput(inputId = "year",
+                        label = "Select Year to View:",
+                        min=2015, max=2020, value= c(2015),
+                        round = TRUE)
+            ),
+            div(style="display: inline-block; padding:30px 0 0 30px;",
+                checkboxInput(inputId = "use_year",
+                          label = "View By Year",
+                          value = TRUE)
+            ),
+
+            div(style="padding:0px 0 40px 0;",
+                h1("Understanding the Data"),
+                textOutput("text_explanation")
+            )
+
+            dataTableOutput("TableOut")
+
+        )
+    )
+)
+
+## Define server logic required to draw a histogram
+server <- function(input, output) {
+
+    output$Histo <- renderPlot({
+
+        # Check if Using Year
+        if(input$use_year) {
+            shootings <- wp_shootings %>%       # Use year
+                filter(year(date) == input$year)
+        } else {                                # Comparing across years
+            shootings <- wp_shootings
+        }
+
+        # Check to filter Races
+        if(!is.null(input$races_to_include)) {
+            shootings <- shootings %>%
+                filter(grepl(paste(input$races_to_include, collapse="|"), race))
+        }
+
+
+
+        # --------
+        # PLOTTING
+        # --------
+
+        # USE YEAR
+        if(input$use_year) {
+            # USE RAW COUNTS
+            if(input$numbers_as == "raw_counts") {
+                # NORMALIZED COUNTS
+                if(input$normalize) {
+                    # Normalize the shootings dataset
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = 1) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        left_join(census, by="race") %>%
+                        rename(Population = ".", Year = `year(date)`) %>%
+                        mutate(Population = as.integer(Population)) %>%
+                        mutate(`Population Percent` = Population / us_population * 100)
+
+                    # Get totals shot in the year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        rename(`Total Shot in Year` = "sum(`Total Shot`)") %>%
+                        right_join(shootings, by="Year") %>%
+                        mutate(`Proportion of Shootings In Year` = `Total Shot` / `Total Shot in Year` * 100)
+
+                    # Normalize proportions by population percentage
+                    shootings <- shootings %>%
+                        mutate(`Ratio Shot vs Population` = `Proportion of Shootings In Year` / `Population Percent`)
+
+                    plot <- shootings %>%
+                        ggplot(aes(x=race, y=`Total Shot`*`Ratio Shot vs Population`, fill=race)) +
+                        geom_bar(color = "white", stat="identity") +
+                        labs(y="Death Count Normalized by US Group Population Percent")
+                }
+                # NOT NORMALIZED
+                else {
+                    plot <- shootings %>%
+                        ggplot(aes(x=race, fill=race)) +
+                        geom_bar(color = "white") +
+                        labs(y="Death Count")
+                }
+                plot <- plot + labs(title="Number Of People Shot By Police In Year",
+                                    x="Race",
+                                    fill="Race")
+            }
+            # USE PROPORTIONS
+            else {
+                shootings <- shootings %>%
+                    group_by(race) %>%
+                    count() %>%
+                    arrange(desc(n)) %>%
+                    mutate(`Proportion of Total` = n/length(shootings$race) * 100) %>%
+                    rename(Race = race, Total = n)
+
+                # NORMALIZED PROPORTIONS
+                if(input$normalize) {
+                    # Normalize the shootings dataset
+                    census <- census %>%    # Rename for the upcoming join
+                        rename(Race = race)
+
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = 1) %>%
+                        left_join(census, by="Race") %>%
+                        rename(Population = ".") %>%
+                        mutate(Population = as.integer(Population)) %>%
+                        mutate(`Population Percent` = Population / us_population * 100)
+
+                    # Get totals shot in the year
+                    shootings <- shootings %>%
+                        mutate(`Total Shot in Year` = sum(shootings$Total)) %>%
+                        mutate(`Proportion of Shootings In Year` = Total / `Total Shot in Year` * 100) %>%
+                        filter(Race != "not recorded") # No data for this category
+
+                    # Normalize proportions by population percentage
+                    shootings <- shootings %>%
+                        mutate(`Ratio Shot vs Population` = `Proportion of Shootings In Year` / `Population Percent`)
+
+                    plot <- shootings %>%
+                        ggplot(aes(x=Race, y=`Ratio Shot vs Population`, fill=Race)) + geom_bar(color = "white", stat="identity")
+                }
+                # NOT NORMALIZED
+                else {
+                    plot <- shootings %>%
+                        ggplot(aes(x=Race, y=`Proportion of Total`, fill=Race)) +
+                        geom_bar(color = "white", stat="identity") +
+                        labs(y="Proportion of Total (%)")
+                }
+            }
+        }
+        # ACROSS YEARS
+        else {
+            # USE RAW COUNTS
+            if(input$numbers_as == "raw_counts") {
+                if(input$normalize) {
+                    # Normalize the shootings dataset
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = 1) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        left_join(census, by="race") %>%
+                        rename(Population = ".", Year = `year(date)`) %>%
+                        mutate(Population = as.integer(Population)) %>%
+                        mutate(`Population Percent` = Population / us_population * 100)
+
+                    # Get totals shot in the year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        rename(`Total Shot in Year` = "sum(`Total Shot`)") %>%
+                        right_join(shootings, by="Year") %>%
+                        mutate(`Proportion of Shootings In Year` = `Total Shot` / `Total Shot in Year` * 100)
+
+                    # Normalize proportions by population percentage
+                    shootings <- shootings %>%
+                        mutate(`Ratio Shot vs Population` = `Proportion of Shootings In Year` / `Population Percent`) %>%
+                        mutate(`Normalized Total Shot in Year` = `Total Shot in Year` * `Ratio Shot vs Population`,
+                               `Normalized Total Shot` = `Total Shot` * `Ratio Shot vs Population`)
+
+                    # Plot it!
+                    plot<- shootings %>%
+                        filter(race != "not recorded") %>% # No data
+                        #mutate(`Total Shot` = rep(1, length(shootings$name))) %>%    # Put a 1 in this slot
+                        #aggregate(`Normalized Total Shot` ~ year(date) + race, data=., sum) %>%
+                        ggplot(aes(x=Year, y=`Normalized Total Shot`, fill=race)) +
+                        geom_bar(stat="identity", position="dodge2") +
+                        scale_x_continuous(breaks=2015:2020) +
+                        labs(title="Shooting Totals by Year, Normalized By Group Population Percent",
+                             x="Year",
+                             fill="Race")
+                }
+                # NOT NORMALIZED
+                else {
+                    plot<- shootings %>%
+                        mutate(`Total Shot` = rep(1, length(shootings$name))) %>%    # Put a 1 in this slot
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        ggplot(aes(x=`year(date)`, y=`Total Shot`, fill=race)) +
+                        geom_bar(stat="identity", position="dodge2") +
+                        scale_x_continuous(breaks=2015:2020) +
+                        labs(title="Shooting Totals by Year",
+                             x="Year",
+                             fill="Race")
+                }
+            }
+            # USE PROPORTIONS
+            else {
+                # NORMALIZED PROPORTIONS
+                if(input$normalize) {
+
+                    # Get by year
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = rep(1, length(shootings$name))) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        rename(Year = `year(date)`)
+                    # Get proportion from year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        right_join(shootings, by="Year") %>%
+                        rename(`Total for Year` = "sum(`Total Shot`)") %>%
+                        mutate(`Proportion Shot in Year` = `Total Shot` / `Total for Year` * 100)
+                    # (The code in NOT NORMALIZED is the same up to this point.)
+
+                    # Normalize the shootings dataset
+                    shootings <- shootings %>%
+                        left_join(census, by="race") %>%
+                        rename(Population = ".") %>%
+                        mutate(Population = as.integer(Population)) %>%
+                        mutate(`Population Percent` = Population / us_population * 100)
+
+                    # Normalize proportions by population percentage
+                    shootings <- shootings %>%
+                        mutate(`Ratio Shot vs Population` = `Proportion Shot in Year` / `Population Percent`)
+
+
+                    # Plot it
+                    plot<- shootings %>%
+                        filter(race != "not recorded") %>% #No data
+                        ggplot(aes(x=Year, y=`Ratio Shot vs Population`, fill=race)) +
+                        geom_bar(stat="identity", position="dodge2") +
+                        scale_x_continuous(breaks=2015:2020) +
+                        labs(title="Proportions of Race Shot by Year, Normalized by Group Population Percent",
+                             x="Year",
+                             fill="Race")
+                }
+                # NOT NORMALIZED
+                else {
+                    # Get by year
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = rep(1, length(shootings$name))) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        rename(Year = `year(date)`)
+                    # Get proportion from year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        right_join(shootings, by="Year") %>%
+                        rename(`Total for Year` = "sum(`Total Shot`)") %>%
+                        mutate(`Proportion Shot in Year` = `Total Shot` / `Total for Year` * 100)
+
+                    # Plot it
+                    plot<- shootings %>%
+                        ggplot(aes(x=Year, y=`Proportion Shot in Year`, fill=race)) +
+                        geom_bar(stat="identity", position="dodge2") +
+                        scale_x_continuous(breaks=2015:2020) +
+                        labs(title="Shooting Totals by Year",
+                             x="Year",
+                             fill="Race")
+                }
+            }
+
+        }
+        plot
+    })
+
+
+    output$TableOut <- renderDataTable({
+        # Check if Using Year
+        if(input$use_year) {
+            shootings <- wp_shootings %>%       # Use year
+                filter(year(date) == input$year)
+        } else {                                # Comparing across years
+            shootings <- wp_shootings
+        }
+
+        # Check to filter Races
+        if(!is.null(input$races_to_include)) {
+            shootings <- shootings %>%
+                filter(grepl(paste(input$races_to_include, collapse="|"), race))
+        }
+        # USE YEAR
+        if(input$use_year) {
+            # USE RAW COUNTS
+            if(input$numbers_as == "raw_counts") {
+                # NORMALIZED COUNTS
+                if(input$normalize) {
+                    # Normalize the shootings dataset
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = 1) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        left_join(census, by="race") %>%
+                        rename(Population = ".", Year = `year(date)`) %>%
+                        mutate(Population = as.integer(Population)) %>%
+                        mutate(`Population Percent` = Population / us_population * 100)
+
+                    # Get totals shot in the year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        rename(`Total Shot in Year` = "sum(`Total Shot`)") %>%
+                        right_join(shootings, by="Year") %>%
+                        mutate(`Proportion of Shootings In Year` = `Total Shot` / `Total Shot in Year` * 100)
+
+                    # Normalize proportions by population percentage
+                    shootings <- shootings %>%
+                        mutate(`Ratio Shot vs Population` = `Proportion of Shootings In Year` / `Population Percent`)
+                }
+                # NOT NORMALIZED
+                else {
+
+                }
+            }
+            # USE PROPORTIONS
+            else {
+                shootings <- shootings %>%
+                    group_by(race) %>%
+                    count() %>%
+                    arrange(desc(n)) %>%
+                    mutate(`Proportion of Total` = n/length(shootings$race) * 100) %>%
+                    rename(Race = race, Total = n)
+
+                # NORMALIZED PROPORTIONS
+                if(input$normalize) {
+                    # Normalize the shootings dataset
+                    census <- census %>%    # Rename for the upcoming join
+                        rename(Race = race)
+
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = 1) %>%
+                        left_join(census, by="Race") %>%
+                        rename(Population = ".") %>%
+                        mutate(Population = as.integer(Population)) %>%
+                        mutate(`Population Percent` = Population / us_population * 100)
+
+                    # Get totals shot in the year
+                    shootings <- shootings %>%
+                        mutate(`Total Shot in Year` = sum(shootings$Total)) %>%
+                        mutate(`Proportion of Shootings In Year` = Total / `Total Shot in Year` * 100) %>%
+                        filter(Race != "not recorded") # No data for this category
+
+                    # Normalize proportions by population percentage
+                    shootings <- shootings %>%
+                        mutate(`Ratio Shot vs Population` = `Proportion of Shootings In Year` / `Population Percent`)
+                }
+                # NOT NORMALIZED
+                else {
+
+                }
+            }
+        }
+        # ACROSS YEARS
+        else {
+            # USE RAW COUNTS
+            if(input$numbers_as == "raw_counts") {
+                if(input$normalize) {
+                    # Normalize the shootings dataset
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = 1) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        left_join(census, by="race") %>%
+                        rename(Population = ".", Year = `year(date)`) %>%
+                        mutate(Population = as.integer(Population)) %>%
+                        mutate(`Population Percent` = Population / us_population * 100)
+
+                    # Get totals shot in the year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        rename(`Total Shot in Year` = "sum(`Total Shot`)") %>%
+                        right_join(shootings, by="Year") %>%
+                        mutate(`Proportion of Shootings In Year` = `Total Shot` / `Total Shot in Year` * 100)
+
+                    # Normalize proportions by population percentage
+                    shootings <- shootings %>%
+                        mutate(`Ratio Shot vs Population` = `Proportion of Shootings In Year` / `Population Percent`) %>%
+                        mutate(`Normalized Total Shot in Year` = `Total Shot in Year` * `Ratio Shot vs Population`,
+                               `Normalized Total Shot` = `Total Shot` * `Ratio Shot vs Population`)
+                }
+                # NOT NORMALIZED
+                else {
+                    # Get by year
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = rep(1, length(shootings$name))) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        rename(Year = `year(date)`)
+                    # Get proportion from year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        right_join(shootings, by="Year") %>%
+                        rename(`Total for Year` = "sum(`Total Shot`)") %>%
+                        mutate(`Proportion Shot in Year` = `Total Shot` / `Total for Year` * 100)
+
+                    # Reorder & Cleanup
+                    shootings <- shootings %>%
+                        select(c("Year",
+                                 Race="race",
+                                 `Number Shot`="Total Shot",
+                                 `Total Shot in Year`="Total for Year",
+                                 "Proportion Shot in Year"))
+                }
+            }
+            # USE PROPORTIONS
+            else {
+                # NORMALIZED PROPORTIONS
+                if(input$normalize) {
+
+                    # Get by year
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = rep(1, length(shootings$name))) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        rename(Year = `year(date)`)
+                    # Get proportion from year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        right_join(shootings, by="Year") %>%
+                        rename(`Total for Year` = "sum(`Total Shot`)") %>%
+                        mutate(`Proportion Shot in Year` = `Total Shot` / `Total for Year` * 100)
+                    # (The code in NOT NORMALIZED is the same up to this point.)
+
+                    # Normalize the shootings dataset
+                    shootings <- shootings %>%
+                        left_join(census, by="race") %>%
+                        rename(Population = ".") %>%
+                        mutate(Population = as.integer(Population)) %>%
+                        mutate(`Population Percent` = Population / us_population * 100)
+
+                    # Normalize proportions by population percentage
+                    shootings <- shootings %>%
+                        mutate(`Ratio Shot vs Population` = `Proportion Shot in Year` / `Population Percent`)
+
+                    # Reorder & Cleanup
+                    shootings <- shootings %>%
+                        select(c("Year",
+                                 Race="race",
+                                 `Number Shot`="Total Shot",
+                                 `Total Shot in Year`="Total for Year",
+                                 "Proportion Shot in Year",
+                                 `Group Percent of US Population` = "Population Percent"))
+
+                }
+                # NOT NORMALIZED
+                else {
+                    # Get by year
+                    shootings <- shootings %>%
+                        mutate(`Total Shot` = rep(1, length(shootings$name))) %>%
+                        aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>%
+                        rename(Year = `year(date)`)
+                    # Get proportion from year
+                    shootings <- shootings %>%
+                        group_by(Year) %>%
+                        summarize(sum(`Total Shot`)) %>%
+                        right_join(shootings, by="Year") %>%
+                        rename(`Total for Year` = "sum(`Total Shot`)") %>%
+                        mutate(`Proportion Shot in Year` = `Total Shot` / `Total for Year` * 100)
+
+                    # Reorder & Cleanup
+                    shootings <- shootings %>%
+                        select(c("Year",
+                                 Race="race",
+                                 `Number Shot`="Total Shot",
+                                 `Total Shot in Year`="Total for Year",
+                                 "Proportion Shot in Year"))
+
+                }
+            }
+
+        }
+
+        shootings
+    })
+
+    output$text_explanation <- renderText("")
+}
+
+# Run the application
+shinyApp(ui = ui, server = server)

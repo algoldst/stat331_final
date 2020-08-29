@@ -1,0 +1,32 @@
+{
+    "id": "BCC20544",
+    "path": null,
+    "project_path": null,
+    "type": "r_dataframe",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1598658830175.0,
+    "source_on_save": false,
+    "relative_order": 5,
+    "properties": {
+        "expression": "structure(list(x = c(\"White\", \"BlacK\", \"Hispanic\")), row.names = c(NA,  -3L), class = \"data.frame\")",
+        "caption": "x",
+        "totalObservations": 3,
+        "displayedObservations": 3,
+        "variables": 1,
+        "cacheKey": "D746D2FB",
+        "object": "",
+        "environment": "_rs_no_env",
+        "contentUrl": "grid_resource/gridviewer.html?env=_rs_no_env&obj=&cache_key=D746D2FB&max_cols=50",
+        "preview": 0
+    },
+    "folds": "",
+    "lastKnownWriteTime": 3545514031913920802,
+    "encoding": "",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1598658830175,
+    "read_only": false,
+    "read_only_alternatives": []
+}

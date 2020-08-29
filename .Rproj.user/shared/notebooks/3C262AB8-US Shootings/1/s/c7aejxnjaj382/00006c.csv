@@ -1,0 +1,8 @@
+"0","# Breakdown of Flee status totals"
+"0","flee_totals <- shootings %>%"
+"0","  mutate(count = 1) %>%"
+"0","  aggregate(count ~ flee, data=., sum) %>%"
+"0","  mutate(`Percent of Total` = count / sum(count) * 100) %>%"
+"0","  arrange(desc(`Percent of Total`)) %>%"
+"0","  rename(`Flee Method` = flee, Total = count)"
+"0","flee_totals"

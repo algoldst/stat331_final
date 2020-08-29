@@ -1,0 +1,8 @@
+"0",""
+"0","# Line graph over time, normalized"
+"0","shootings_norm %>%"
+"0","  ggplot(aes(x=Year, y=`Ratio Shot vs Population`, color=race)) +"
+"0","  geom_line() +"
+"0","  labs(title=""Trends for Shooting Ratios Normalized By Population, by Year"","
+"0","       x=""Year"","
+"0","       color=""Race"")"

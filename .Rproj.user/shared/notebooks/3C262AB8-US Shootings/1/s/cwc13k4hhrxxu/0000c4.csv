@@ -1,0 +1,5 @@
+"0",""
+"0","# Results for Race & Year"
+"0","shootings_norm %>%"
+"0","  arrange(race) %>%"
+"0","  select(-""Population"")"
