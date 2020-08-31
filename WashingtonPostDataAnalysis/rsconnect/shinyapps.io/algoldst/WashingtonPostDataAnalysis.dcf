@@ -1,0 +1,12 @@
+name: WashingtonPostDataAnalysis
+title: WashingtonPostDataAnalysis
+username:
+account: algoldst
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2727402
+bundleId: 3574944
+url: https://algoldst.shinyapps.io/WashingtonPostDataAnalysis/
+when: 1598860718.03038
+asMultiple: FALSE
+asStatic: FALSE
