@@ -125,7 +125,7 @@ ui <- fluidPage(
             div(style="padding:0px 0 40px 0;",
                 h1("Understanding the Data"),
                 textOutput("text_explanation")
-            )
+            ),
 
             dataTableOutput("TableOut")
 

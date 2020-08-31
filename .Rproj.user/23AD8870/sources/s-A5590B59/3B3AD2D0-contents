@@ -4,13 +4,13 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message=FALSE)
 
 # Libraries
 library(tidyverse)
 library(lubridate)
 ```
-# Get Data
+
 ```{r}
 # Import
 shootings <- read.csv("https://raw.githubusercontent.com/washingtonpost/data-police-shootings/master/fatal-police-shootings-data.csv")
@@ -45,9 +45,17 @@ shootings <- shootings %>%
 
 ```
 
-# Data Analysis
+In 2015, the Washington Post published an investigation into police reporting in the US -- or rather, the lack of police reporting. As they note in their [Police Shootings Database report](https://www.washingtonpost.com/graphics/investigations/police-shootings-database/), no branch of US government is responsible for ensuring the collection or maintainance of proper reporting of lethal police shootings. While some departments have policies to record police shootings, many do not, and even the FBI's database of fatal shootings by police is horribly limited in its scope. Since then, the Post has maintained its own database of more than 5000 lethal shootings by police, collecting information on each individual shot and the details surrounding their death. 
 
-**What percentage are killed while attempting to flee? Has this number decreased over time? How many of these individuals were unarmed?**
+However, this is all just data. While the Post has conducted its own analysis of the data, it's worth wondering about the validity of their investigation. We wanted to investigate some of the questions posed by the Washington Post, as well as pose some of our own, and therefore we have turned to their database in order to answer the questions we were wondering the most about.
+
+
+## Flight Status
+
+Each entry in the Post database lists a "flight status" -- that is, if a shot individual was attempting to flee, and if so, how. We decided to examine this factor, in an attempt to answer some questions about the police's justification in their use of deadly force. How many people were shot while attempting to get away from the police, and what did these attempts look like?
+
+In the table seen below, we can see a summary of the data for each "flight method." We included both the raw counts method, as well as percentages indicating the proportions of the total each escape attempt comprised. We then decided to plot the data to compare visually how each of these groups compared.
+
 ```{r}
 # Breakdown of Flee status totals
 flee_totals <- shootings %>%
@@ -57,6 +65,7 @@ flee_totals <- shootings %>%
   arrange(desc(`Percent of Total`)) %>%
   rename(`Flee Method` = flee, Total = count)
 flee_totals
+
 # Plot of Flee Status Breakdown
 flee_totals %>%
   ggplot(aes(x=reorder(`Flee Method`,-`Percent of Total`), y=`Percent of Total`, fill=`Flee Method`)) +
@@ -64,21 +73,34 @@ flee_totals %>%
   labs(title="Breakdown of Individuals Shot, by 'Flee' Status",
        x="Flee Method",
        y="Percent of Total")
+```
+
+The majority of individuals shot are categorized as "not fleeing" (62%), while the remaining 38% flee typically by car and by foot. Cars are used slightly more for an attempted escape compared to fleeing on foot. We could not determine the method of flight for the roughly 3% of cases marked "Other," and also note that nearly 5% of cases did not record flight status in the police report. This might affect some of the numbers and percentages, although if we assume that flight statuses are typically recorded when suspects try to get away and are omitted when they do not, we expect that this would most likely cause the most significant boost to the "Not Fleeing" category.
 
 
+#### Unarmed & Fleeing -- Miscarriages of Justice
+
+It is important to recognize that an individual's attempt to escape the police is **not** synonymous with being harmless to the officer or others. For example, as the Washington Post's dataset "readme" file states, a suspect might fire a gun at the officer at the same time as they are trying to escape. Therefore, it doesn't make sense to conclude from the data that the 38% of "fleeing" individuals were wrongfully killed -- after all, they might have simultaneously attempted to escape **and** represented a significant and lethal risk to the officer. 
+
+That said, barring extraordinary circumstances, we do not see any reason to conclude that a shooting of an **unarmed and fleeing** individual is ever warranted in proper policing, given that such individuals cannot represent an immediate threat to the officer's life. Filtering the data for cases matching this profile, we find that roughly 2.5% of police shootings (approximately 25 cases) involved individuals who were attempting to escape while unarmed. We take these to be clear cases of poor policing and unjustifiable killings. (It should be noted that, although 1.3% of these cases involved the individual escaping by car, it cannot be argued that the car was a possible "weapon" because our dataset has other cases where cars **were**, in fact, used as a weapon, and these are marked as such in the data.) 
+
+```{r}
 # How many were unarmed and fleeing?  
 flee_unarmed <- shootings %>%
   filter(armed == "unarmed") %>%
   filter(flee != "Not fleeing" & flee != "not recorded") %>%
   count(flee) %>%
   mutate(`Percent of Total Fleeing` = n/sum(flee_totals$Total) * 100) %>%
-  rename(`Flee Status` = flee, `Number Shot` = n)
+  rename(`Flee Status` = flee, `Number Shot` = n) %>%
+  mutate(Armed = "Unarmed")
 flee_unarmed
 ```
 
-**How many people were killed with a “non-weapon”? (Eg. “Toy weapon”)**
+#### Unarmed Individuals and Non-Weapons
 
-These could be wrongful deaths in cases where the “Threat Level” says they were not attacking.
+Broadening our scope to examine individuals of all flight statuses, we next examined those who were not armed with what might be a significant weapon. Granted, one might consider even an "unarmed" individual to have a significant weapon, in the sense of having a body and being willing to use it to cause harm. However, in this case, we interpreted "lacking a significant weapon" to mean anyone who is listed as "unarmed", "claimed to be armed" (cop could not see a weapon), anyone with a "toy weapon", and any cases where the "armed" status was unrecorded. (As before with the flight status, we make the assumption that an officer would record a weapon if it existed, and that it is more likely that the lack of recording correlates to lacking a weapon.) These are interesting cases to examine, however we caution against drawing any strong conclusions from this data given the ambiguity surrounding the details. 
+
+In total, these cases comprise approximately 11% of all police shootings. 
 
 ```{r}
 # Filter by all non-weapons we can find
@@ -87,7 +109,6 @@ nonweapon <-
   filter(armed == "unarmed" |
          armed == "toy weapon" |
          armed == "claimed to be armed" | 
-         armed == "unknown weapon" |
          armed == "not recorded")
 
 # Get counts & proportions
@@ -120,12 +141,15 @@ nonweapon_proportion %>%
 
 ```
 
-[J]**How many mentally-ill individuals were tased or otherwise attempted to be subdued before officers resorted to shooting? Has this number changed over time?**
-```{r}
 
-```
+## Racial Analysis
 
-[A]**What is the breakdown of police shootings by race? By raw numbers? How has this changed over time?**
+The Washington Post data contains information about the race of each individual, which is extremely useful when subjected to a thorough data analysis. For example, one of the most pressing questions of the current political moment (and perhaps much of the political past, too) is, "Are there racial disparities in outcomes with police, and if so, how do racial groups differ in this regard?" If there are differences (and we suspect there are -- the reason for our seeming skepticism is purely a scientific precaution against any accusation of bias), then we expect to see this reflected in the data.
+
+#### Sums by Raw Numbers
+
+We begin by analyzing the data in aggregate, summing across the entire span of time from 2015 to the present, to break down each fatal police shooting by race. Given that each racial population in the United States is present to varying degrees (eg. "white" individuals account for roughly half of the US population), we should not be surprised to see higher numbers for groups which are over-represented. The same holds true, in opposite, for minority populations.
+
 ```{r}
 # Replace race identifier with full text
 shootings2 <- shootings %>%
@@ -155,13 +179,22 @@ by_race %>%
   labs(title="Number of US Police Shootings by Race Since 2015",
        x="Race",
        y="Number of Deaths")
+```
 
+Indeed, this is what we see when looking at the sum totals. Roughly 2500 white individuals have been fatally shot by police since 2015, leading any other group in raw counts; this is roughly double the black population's police shootings, at 1300 people. In fact, if we omit the "not recorded" category from the data, white individuals account for more police shootings than all other races combined. Asians, Native Americans, and all "Other" races make up a very small number of deaths, by the numbers.
+
+We get a similar picture when breaking up the data by year. Again, white individuals lead the other races in shootings, with blacks and Hispanics following by roughly half, and after a sharp decline, shootings of Asians, Native Americans, and "Other" barely register on the plot. 
+
+One important note about the plots: The year 2020 looks like a positive year for police shootings. It is not. Because this data is still being recorded, the dataset is incomplete, and the numbers are likely to continue to increase (a lot) over the remainder of the year. Police shootings numbers have remained roughly constant across all years of the dataset. The number of white individuals shot each year seems to be falling somewhat, but we will need to wait until the end of 2020 to see if this is a trend or simply a statistical anomaly.
+
+```{r}
 # Plotting Races by Year
 shootings2 %>%
   mutate(`Total Shot` = rep(1, length(shootings$name))) %>%    # Put a 1 in this slot
   aggregate(`Total Shot` ~ year(date) + race, data=., sum) %>% 
   ggplot(aes(x=`year(date)`, y=`Total Shot`, fill=reorder(race,-`Total Shot`))) +
   geom_bar(stat="identity", position="dodge2") +
+  scale_x_continuous(breaks=2015:2020) +
   labs(title="Shooting Totals by Year",
        x="Year",
        fill="Race")
@@ -177,7 +210,14 @@ shootings2 %>%
        color="Race")
 ```
 
-**Normalizing by percentage of each race's total population in the US?**
+#### Normalization of a Statistical Nature
+
+As mentioned at the start of the discussion on shootings by race, the populations of various races in the United States are not equal, and therefore we should not be surprised to see that whites lead in fatal police shootings compared to every other racial group -- after all, they make up half of the population. For this reason, we decided to "normalize" (a statistical term for an intelligent adjustment to data) the results by converting first to percentages, and then dividing these percentages by the percentage that each racial group comprises of the US population total. This allows us to compare whether or not a result is significant, from the perspective that there are some outcomes which _seem_ unequal on their face, but are in fact exactly what we should expect upon careful analysis; similarly, there are some outcomes which seem equal, or even favorable, but are in fact not what we might expect.
+
+The way this normalization works can be thought of like so: Imagine a room of 50 white people, 20 black people, 20 Hispanic, and 10 Asian people. (No, this is not representative of the USA.) If you were to walk into this room and randomly select 10 people, you would expect that 5 of them should be white, 2 should be black, 2 Hispanic, and 1 should be Asian. Truly "random" shooting by police would result in a similar outcome. Given that we expect each race to be represented to varying degrees, one trick we can do is to divide by how many we expect to see. If we get a "1" for each category, then our selection process is likely random; if we get higher than 1, it biases toward choosing individuals from these groups, and if we get less than 1, it biases away from these groups. 
+
+This example illustrates how we applied normalization to our dataset. Indeed, when we do this, we arrive at the shocking/obvious (depending on the person) conclusion that Native Americans and Blacks are biased toward *higher* shooting counts than predicted by their populations alone, while Hispanics, Whites, Asians, and "Other"-classified races are biased toward *lower* shooting counts than predicted. This can be seen in the data table below, as well as in the plot. (The data table contains additional information that the plot does not show; in particular, there is the "not recorded" category, which we were unable to normalize for. We aren't sure where these numbers would contribute to, although one theory is that it might bolster the counts for non-white individuals shot.)
+
 ```{r}
 # First, we need each race's total population for 2015-2020.
 census <- read.csv(here::here("acs2017_census_tract_data.csv"))
@@ -267,12 +307,17 @@ by_race2 %>%
        y="Ratio: Shot vs Racial Population")
 
 # Results for Race & Year
-shootings_norm %>%
-  arrange(race) %>%
-  select(-"Population")
+# shootings_norm %>%
+#   arrange(race) %>%
+#   select(-"Population")
+```
 
+We see a similar story when looking at the normalized numbers by year: Native Americans are anywhere from **1.5 to 3.5 times** as likely to be shot fatally by police, as compared to their US population percentage. Blacks follow this at approximately **two times** as likely to be fatally shot.[^1] By comparison, Hispanics and whites are _less_ likely than their population indicates to be shot; Hispanics are roughly 0.8 times as likely to be shot compared to their population estimate, and whites are in the range of 0.7 times. Asians occupy the lowest (along with the mysterious "Other" classification) ratio, at around 0.3 times their population.
+
+```{r}
 # Plot Races by Year, normalized
 shootings_norm %>%
+  filter(race != "not recorded") %>% # No data
   ggplot(aes(x=Year, y=`Ratio Shot vs Population`, fill=reorder(race,-`Ratio Shot vs Population`))) +
   geom_bar(stat="identity", position="dodge2") +
   scale_y_continuous(breaks=seq(0,9,1)) +
@@ -283,6 +328,7 @@ shootings_norm %>%
 
 # Line graph over time, normalized
 shootings_norm %>%
+  filter(race != "not recorded") %>%
   ggplot(aes(x=Year, y=`Ratio Shot vs Population`, color=race)) +
   geom_line() +
   labs(title="Trends for Shooting Ratios Normalized By Population, by Year",
@@ -291,22 +337,26 @@ shootings_norm %>%
   
 ```
 
+## Conclusions
 
-```{r}
+It's difficult to draw solid conclusions from the data, and we are cautious about being over-eager to draw many conclusions at all. However, there are some things that are crystal clear, and some things which need further investigation. Readers may, of course, draw their own conclusions from the results we have obtained, but there are many extraneous factors which might explain or detract from the results here. That said, here are our conclusions, summarized.
+
+- Unjustified police shootings make up at least 2.5 percent of all fatal police shootings. We are not very hesitant in concluding that these cases are most likely miscarriages of justice.
+
+- When examining both individuals who attempted to flee as well as those who did not, the percentage of unarmed individuals shot is somewhere between 6 perent and 11 percent. This is more of a "gray area" because even unarmed individuals could pose a significant risk to an officer.
+
+- Whites make up more police shooting deaths than all other races combined, by raw numbers.
+
+- Native Americans and blacks make up more police shooting deaths than their populations suggest we should expect to see via simple randomization.
+
+- Asians and "Other"-classified races make up the smallest groups shot and killed by police, in both raw numbers and normalized proportions.
+
+As a final conclusion, one thing is certainly clear: Police need more training. There are roughly 1000 fatal shootings by police each year, and the number appears to hold constant across time. Policing is hard work; it's difficult and requires a great deal of bravery and self-sacrifice. But proper policing also requires skill, and if we want to see improvements in the results obtained in this analysis, we need to ensure that police receive proper training to do their jobs effectively. It's clear that poor policing hurts everyone in the United States, and this is something that have an obligation to fix.
 
 
-```
+[^1]: As has been [pointed out](https://www.channel4.com/news/factcheck/factcheck-black-americans-commit-crime), black Americans commit more than 50 percent of violent crime; blacks committed 52 percent of homicides between 1980 and 2008. While the more recent numbers are reduced from this figure, in 2013 the FBI recorded that blacks carried out 38 percent of murders, compared to 31 percent for whites. This should not be taken as rationalization and justification for the above-population-level (aka "1.0") normalization ratio, but it might explain part of it. After all, if blacks make up 13% of the population but commit 50% of violent crime, where _should_ the proportion of black individuals shot by police fall? We're certainly not inclined to believe it ought to be as high as 50%, but it also doesn't seem reasonable to expect it to be 13 percent, either.
 
-[J]**Is there a correlation between threat level & race?**
-
-If so, possible sources might be:
-
-- Interactions with police among specific racial groups might, on average, be more aggressive / carry higher risk
-
-- Police perception of an individual’s threat level might be influenced/biased by race.
-
-- How does city population factor into the number of police shootings? What about population densities? Are these correlated?
-
-
+<br/>
+<br/>
 
 

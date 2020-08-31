@@ -1,7 +1,0 @@
-"0","# Plot of Flee Status Breakdown"
-"0","flee_totals %>%"
-"0","  ggplot(aes(x=reorder(`Flee Method`,-`Percent of Total`), y=`Percent of Total`, fill=`Flee Method`)) +"
-"0","  geom_bar(stat=""identity"") +"
-"0","  labs(title=""Breakdown of Individuals Shot, by 'Flee' Status"","
-"0","       x=""Flee Method"","
-"0","       y=""Percent of Total"")"

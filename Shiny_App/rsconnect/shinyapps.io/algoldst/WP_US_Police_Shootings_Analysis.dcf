@@ -1,0 +1,12 @@
+name: WP_US_Police_Shootings_Analysis
+title: WP_US_Police_Shootings_Analysis
+username:
+account: algoldst
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 2722308
+bundleId: 3574271
+url: https://algoldst.shinyapps.io/WP_US_Police_Shootings_Analysis/
+when: 1598843263.32507
+asMultiple: FALSE
+asStatic: FALSE
